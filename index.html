@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kociemba's Algorithm Cube Solver</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.cubing.net/v0/js/cubing/twisty" type="module"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .controls-panel {
+            flex: 1;
+            min-width: 300px;
+        }
+        .cube-panel {
+            flex: 2;
+            min-width: 350px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        twisty-player {
+            width: 100%;
+            height: 400px;
+            max-width: 400px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+        .button-group button {
+            flex: 1;
+        }
+        /* Responsive adjustments */
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls-panel">
+            <h1 class="text-3xl font-bold text-center mb-6 text-indigo-700">Kociemba's Algorithm Cube Solver</h1>
+
+            <div class="mb-6">
+                <label for="scrambleInput" class="block text-gray-700 text-sm font-bold mb-2">Enter Scramble String:</label>
+                <input type="text" id="scrambleInput" placeholder="e.g., R U' F2 L D"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-indigo-500">
+            </div>
+
+            <div class="button-group">
+                <button id="scrambleButton"
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-200">
+                    Scramble Cube
+                </button>
+                <button id="solveButton"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-200">
+                    Solve Cube
+                </button>
+            </div>
+
+            <div id="solutionDisplay" class="bg-gray-100 p-4 rounded-lg text-gray-800 text-sm break-words">
+                <p class="font-semibold mb-1">Solution:</p>
+                <p id="solutionText">Enter a scramble string and click "Scramble Cube".</p>
+                <p id="solutionTime" class="text-xs text-gray-500 mt-2"></p>
+            </div>
+            <p class="text-gray-500 text-xs mt-4 text-center">
+                *Note: Ensure your Flask backend is running on http://127.0.0.1:5002
+            </p>
+        </div>
+
+        <div class="cube-panel">
+            <twisty-player id="cubePlayer"
+                           alg=""
+                           setup-alg=""
+                           control-panel="none"
+                           camera-latitude="30"
+                           camera-longitude="-15"
+                           class="shadow-lg rounded-lg">
+            </twisty-player>
+        </div>
+    </div>
+
+    <script>
+        // Helper function to count moves in an algorithm string
+        function countMoves(algString) {
+            if (!algString) return 0;
+            // Split by whitespace and filter out empty strings
+            return algString.trim().split(/\s+/).filter(s => s !== '').length;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const scrambleInput = document.getElementById('scrambleInput');
+            const scrambleButton = document.getElementById('scrambleButton');
+            const solveButton = document.getElementById('solveButton');
+            const solutionText = document.getElementById('solutionText');
+            const solutionTime = document.getElementById('solutionTime');
+            const cubePlayer = document.getElementById('cubePlayer');
+
+            // Stores the actual scramble applied to the cube, needed for the solve API call
+            let currentScramble = ''; 
+
+            // Initialize cube to a solved state visually on load
+            cubePlayer.alg = '';
+            cubePlayer.setupAlg = '';
+            solveButton.disabled = true; // Solve button disabled until cube is scrambled
+
+            // --- Scramble Button Logic ---
+            scrambleButton.addEventListener('click', async () => {
+                const scramble = scrambleInput.value.trim();
+                if (!scramble) {
+                    solutionText.textContent = "Please enter a scramble string to scramble!";
+                    solutionTime.textContent = "";
+                    return;
+                }
+
+                solutionText.textContent = "Scrambling...";
+                solutionTime.textContent = "";
+                
+                // Disable buttons during operation
+                scrambleButton.disabled = true;
+                scrambleButton.classList.add('opacity-50', 'cursor-not-allowed');
+                solveButton.disabled = true; 
+                solveButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+                try {
+                    // 1. Reset cube to a fully solved visual state
+                    cubePlayer.setupAlg = ''; 
+                    cubePlayer.alg = '';
+                    cubePlayer.playbackPosition = 0; // Ensure starts from beginning
+                    await cubePlayer.play(); // Play to ensure it's truly reset to solved
+
+                    // 2. Animate the scramble
+                    cubePlayer.alg = scramble; // Set the scramble as the algorithm
+                    cubePlayer.playbackPosition = 0; // Start from beginning (solved)
+                    cubePlayer.playbackSpeed = 1; // Normal speed
+
+                    // Play the scramble animation and WAIT for it to complete
+                    await cubePlayer.play(); 
+
+                    // After scramble animation, set the player to the END of the scramble
+                    // and store it for the next step.
+                    cubePlayer.playbackPosition = countMoves(scramble); 
+                    currentScramble = scramble; // Store the actual scramble string
+
+                    solutionText.textContent = "Cube scrambled! Click 'Solve Cube' to find the solution.";
+                    solutionTime.textContent = "";
+
+                } catch (error) {
+                    console.error('Error during scramble:', error);
+                    solutionText.textContent = `Error scrambling: ${error.message}`;
+                    solutionTime.textContent = "";
+                } finally {
+                    // Re-enable buttons
+                    scrambleButton.disabled = false;
+                    scrambleButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                    if (currentScramble) { 
+                        solveButton.disabled = false;
+                        solveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+                }
+            });
+
+            // --- Solve Button Logic ---
+            solveButton.addEventListener('click', async () => {
+                if (!currentScramble) {
+                    solutionText.textContent = "Please scramble the cube first!";
+                    solutionTime.textContent = "";
+                    return;
+                }
+
+                solutionText.textContent = "Solving... Please wait.";
+                solutionTime.textContent = "";
+                
+                // Disable buttons during operation
+                solveButton.disabled = true;
+                solveButton.classList.add('opacity-50', 'cursor-not-allowed');
+                scrambleButton.disabled = true; 
+                scrambleButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+                try {
+                    // Fetch solution from API
+                    const startTime = performance.now();
+                    const response = await fetch(`http://127.0.0.1:5002/solve?scramble=${encodeURIComponent(currentScramble)}`);
+                    const endTime = performance.now();
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+
+                    console.log('Received solution from backend:', data.solution);
+
+                    if (data.error) {
+                        solutionText.textContent = `Error from backend: ${data.error}`;
+                        solutionTime.textContent = "";
+                        console.error('Backend error:', data.error);
+                    } else {
+                        const totalApiTime = ((endTime - startTime) / 1000).toFixed(2);
+                        const solutionMoves = data.solution || ""; // Get solution, default to empty string
+                        solutionText.textContent = solutionMoves || "(Already solved, no moves needed)"; 
+                        solutionTime.textContent = `Time taken (API call): ${totalApiTime} seconds`;
+
+                        // Animate the solution from the scrambled state.
+                        // We achieve this by appending the solution to the scramble,
+                        // and setting playbackPosition to the end of the scramble.
+                        const totalAlg = currentScramble + (solutionMoves ? ' ' + solutionMoves : '');
+                        
+                        cubePlayer.alg = totalAlg;
+                        cubePlayer.playbackPosition = countMoves(currentScramble); // Start from end of scramble
+                        cubePlayer.playbackSpeed = 1; // Normal speed for solution
+
+                        // Play the solution animation only if there are actual solution moves
+                        if (solutionMoves.trim() !== "") {
+                            await cubePlayer.play();
+                            console.log("Solution animation played.");
+                        } else {
+                            console.log("No solution moves to animate (cube might be already solved).");
+                        }
+
+                        // After solving, set setupAlg to empty and alg to empty
+                        // to show a completely solved cube visually, ready for next scramble.
+                        cubePlayer.alg = '';      
+                        cubePlayer.setupAlg = ''; 
+                        
+                        solveButton.disabled = true; // Disable solve button again until new scramble
+                    }
+
+                } catch (error) {
+                    console.error('Error fetching solution or during animation:', error);
+                    solutionText.textContent = `Failed to solve: ${error.message}. Check Flask server console for details.`;
+                    solutionTime.textContent = "";
+                } finally {
+                    // Re-enable buttons
+                    solveButton.disabled = false;
+                    solveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                    scrambleButton.disabled = false; 
+                    scrambleButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
